@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Editor APA 7: el juego</title>
+<style>
+:root{--bg:#f6f4ee;--card:#fff;--ink:#1d2433;--mut:#667085;--acc:#3d5afe;--ok:#1b9e5a;--bad:#d64545;--line:#dcd8cc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171f;--card:#1e2330;--ink:#eef0f6;--mut:#9aa3b5;--acc:#7b8cff;--ok:#43c985;--bad:#ff7070;--line:#323a4d}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:14px}
+h1{font-size:1.2rem;margin:0}
+.stats{font-size:.9rem;color:var(--mut)}
+.stats b{color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:10px 16px;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.mode{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.mode b{display:block;font-size:1.05rem}
+.mode span{color:var(--mut);font-size:.9rem}
+.ref{font-family:"Times New Roman",Georgia,serif;font-size:1.1rem;line-height:1.7;padding-left:1.6rem;text-indent:-1.6rem}
+.seg{cursor:pointer;border-bottom:2px dotted var(--mut);padding:1px 0}
+.seg:hover{background:color-mix(in srgb,var(--acc) 18%,transparent)}
+.seg.hit{border-bottom-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,transparent)}
+.seg.miss{opacity:.5}
+.opts{display:grid;gap:8px;margin-top:10px}
+.opt{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.opt:hover{border-color:var(--acc)}
+.fb{margin-top:10px;padding:10px;border-radius:10px;font-size:.95rem}
+.fb.ok{background:color-mix(in srgb,var(--ok) 18%,transparent)}
+.fb.bad{background:color-mix(in srgb,var(--bad) 18%,transparent)}
+.tag{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.bar{height:8px;background:var(--line);border-radius:9px;overflow:hidden;margin:8px 0 12px}
+.bar i{display:block;height:100%;background:var(--acc);width:100%}
+.swipe{display:flex;gap:10px}
+.swipe button{flex:1;padding:14px;border-radius:12px;border:0;font-weight:700;color:#fff;font-size:1rem}
+.pool,.zone{display:flex;flex-wrap:wrap;gap:8px;min-height:52px;padding:10px;border-radius:12px}
+.zone{border:2px dashed var(--line);flex-direction:column;align-items:stretch}
+.zone.over{border-color:var(--acc)}
+.piece{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-family:"Times New Roman",Georgia,serif;font-size:1.02rem;cursor:grab;user-select:none}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.big{font-size:2.4rem;text-align:center}
+</style>
+</head>
+<body>
+<main>
+<header><h1>📚 Editor APA 7</h1><div class="stats">Puntos <b id="sc">0</b> · Racha <b id="st">0</b></div></header>
+<div id="app"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const app=$('#app');
+let score=0,streak=0,timer=null,keyFn=null;
+const shuffle=a=>[...a].sort(()=>Math.random()-.5);
+function pts(ok){if(ok){streak++;score+=10+Math.min(streak,5)*2}else streak=0;$('#sc').textContent=score;$('#st').textContent=streak}
+function stop(){clearInterval(timer);if(keyFn){document.removeEventListener('keydown',keyFn);keyFn=null}}
+
+/* ---------- DATOS ---------- */
+const CAZA=[
+{p:`Referencia de un libro. Encuentra el error:`,segs:[`Pérez, J. (2020). `,`<i>Psicología social</i>`,`. `,`Bogotá: Norma.`],err:3,opts:[`Editorial Norma.`,`Norma, Bogotá.`,`(Norma).`],ok:0,why:`En APA 7 se escribe solo la editorial. La ciudad ya no se incluye.`},
+{p:`Referencia de un artículo. Encuentra el error:`,segs:[`Rojas, M. (2019). Estrés académico en universitarios. `,`Revista de Psicología, 12(3)`,`, 45–60.`],err:1,opts:[`Nombre de la revista y volumen en cursiva`,`Solo el título del artículo en cursiva`,`Todo sin cursiva`],ok:0,why:`En artículos van en cursiva el nombre de la revista y el número de volumen, no el título del artículo.`},
+{p:`Referencia con DOI. Encuentra el error:`,segs:[`Rojas, M. (2019). Estrés académico en universitarios. <i>Revista de Psicología, 12</i>(3), 45–60. `,`doi:10.1000/xyz123`],err:1,opts:[`https://doi.org/10.1000/xyz123`,`Recuperado de doi:10.1000/xyz123`,`DOI 10.1000/xyz123`],ok:0,why:`APA 7 presenta el DOI como URL completa: https://doi.org/…, sin etiquetas ni «Recuperado de».`},
+{p:`Año de publicación. Encuentra el error:`,segs:[`Pérez, J. `,`2020.`,` <i>Psicología social</i>. Editorial Norma.`],err:1,opts:[`(2020).`,`, 2020,`,`[2020]`],ok:0,why:`El año va entre paréntesis y seguido de punto: (2020).`},
+{p:`Página web sin fecha. Encuentra el error:`,segs:[`Ministerio de Salud. (`,`sin fecha`,`). <i>Guía de salud mental</i>. https://www.salud.gob.example/guia`],err:1,opts:[`s. f.`,`n.d.`,`sin año`],ok:0,why:`En español, cuando no hay fecha se usa (s. f.).`},
+{p:`Cita en el texto. Encuentra el error:`,segs:[`Según `,`Pérez, Gómez, Ruiz y Torres (2019)`,`, el estrés aumenta en época de exámenes.`],err:1,opts:[`Pérez et al. (2019)`,`Pérez y otros (2019)`,`Pérez, Gómez, et al. (2019)`],ok:0,why:`Con tres o más autores se cita desde la primera vez con el primer autor y «et al.».`}
+];
+const TIND=[
+{t:`(Pérez et al., 2019)`,tag:`Cita en el texto · 3+ autores`,ok:true,why:`Correcto: tres o más autores se abrevian con et al. desde la primera cita.`},
+{t:`(López 2018)`,tag:`Cita parentética`,ok:false,why:`Falta la coma entre autor y año: (López, 2018).`},
+{t:`Según López (2018), el aprendizaje es activo.`,tag:`Cita narrativa`,ok:true,why:`Correcto: en la narrativa, solo el año va entre paréntesis.`},
+{t:`Pérez, J. (2020). <i>Psicología social</i>. Bogotá: Norma.`,tag:`Referencia de libro`,ok:false,why:`La ciudad ya no se incluye; basta con la editorial.`},
+{t:`Pérez, J. (2020). <i>Psicología social</i>. Editorial Norma.`,tag:`Referencia de libro`,ok:true,why:`Correcto: título del libro en cursiva y solo la editorial.`},
+{t:`Recuperado de https://doi.org/10.1000/xyz123`,tag:`DOI`,ok:false,why:`APA 7 ya no usa «Recuperado de» antes de un DOI o URL.`},
+{t:`https://doi.org/10.1000/xyz123`,tag:`DOI`,ok:true,why:`Correcto: el DOI se presenta como URL completa.`},
+{t:`Una cita textual de 25 palabras en un bloque aparte y con sangría.`,tag:`Citas textuales`,ok:false,why:`El formato de bloque es para citas de 40 palabras o más. Las más cortas van entre comillas dentro del párrafo.`},
+{t:`Una cita de 52 palabras en bloque con sangría de 1,27 cm y sin comillas.`,tag:`Citas textuales`,ok:true,why:`Correcto: 40 palabras o más van en bloque, sin comillas.`},
+{t:`Márgenes de 2,54 cm en los cuatro lados.`,tag:`Formato general`,ok:true,why:`Correcto: APA 7 pide márgenes de 1 pulgada (2,54 cm).`},
+{t:`La lista de referencias va con sangría francesa (0,5 pulgadas).`,tag:`Formato general`,ok:true,why:`Correcto: la primera línea queda al margen y las siguientes con sangría.`},
+{t:`El número de página va abajo y al centro.`,tag:`Formato general`,ok:false,why:`En APA 7 el número de página va en la esquina superior derecha.`},
+{t:`La lista de referencias se ordena por fecha de publicación.`,tag:`Formato general`,ok:false,why:`Se ordena alfabéticamente por el apellido del primer autor.`}
+];
+const ARMA=[
+{n:`Libro`,pcs:[`Pérez, J.`,`(2020).`,`<i>Psicología social</i>.`,`Editorial Norma.`],why:`Libro: Autor. (Año). <i>Título</i>. Editorial.`},
+{n:`Artículo científico`,pcs:[`Rojas, M.`,`(2019).`,`Estrés académico en universitarios.`,`<i>Revista de Psicología, 12</i>(3), 45–60.`,`https://doi.org/10.1000/xyz123`],why:`Artículo: Autor. (Año). Título del artículo. <i>Revista, volumen</i>(número), páginas. DOI.`},
+{n:`Página web`,pcs:[`Ministerio de Salud.`,`(2021, 5 de marzo).`,`<i>Guía de salud mental</i>.`,`https://www.salud.gob.example/guia`],why:`Web: Autor. (Fecha). <i>Título</i>. URL.`}
+];
+
+/* ---------- PANTALLAS ---------- */
+function menu(){stop();app.innerHTML=`
+<p style="color:var(--mut);margin-top:0">Elige un modo y demuestra cuánto sabes de normas APA 7 (versión en español).</p>
+<button class="mode" onclick="caza()"><b>🔍 Caza de errores</b><span>Toca el fragmento incorrecto y elige la corrección.</span></button>
+<button class="mode" onclick="arma()"><b>🧩 Arma la referencia</b><span>Ordena los datos sueltos con el formato exacto.</span></button>
+<button class="mode" onclick="tinder()"><b>⚡ Acierta o rechaza</b><span>Correcto o incorrecto, contra el reloj (← y → del teclado).</span></button>`}
+
+function fin(name,right,total){stop();app.innerHTML=`<div class="card"><div class="big">${right/total>=.7?'🏆':'📖'}</div><h2 style="text-align:center;margin:6px 0">${name}</h2><p style="text-align:center">Aciertos: <b>${right}/${total}</b> · Puntos: <b>${score}</b></p><div class="row" style="justify-content:center"><button class="btn" onclick="menu()">Menú</button></div></div>`}
+
+/* Caza de errores */
+function caza(){stop();let i=0,right=0;const items=shuffle(CAZA);
+function show(){const d=items[i];let found=false;
+app.innerHTML=`<div class="card"><div class="tag">Caza de errores · ${i+1}/${items.length}</div><p>${d.p}</p><div class="ref" id="ref">${d.segs.map((s,k)=>`<span class="seg" data-k="${k}">${s}</span>`).join('')}</div><div id="zone"></div></div>`;
+document.querySelectorAll('.seg').forEach(el=>el.onclick=()=>{if(found)return;const k=+el.dataset.k;
+if(k!==d.err){el.classList.add('miss');pts(false);$('#zone').innerHTML=`<div class="fb bad">Ese fragmento está bien. Sigue buscando.</div>`;return}
+found=true;el.classList.add('hit');
+const o=shuffle(d.opts.map((t,j)=>({t,j})));
+$('#zone').innerHTML=`<p style="margin:12px 0 0"><b>¿Cuál es la corrección?</b></p><div class="opts">${o.map(x=>`<button class="opt" data-j="${x.j}">${x.t}</button>`).join('')}</div>`;
+document.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{const ok=+b.dataset.j===d.ok;if(ok)right++;pts(ok);
+$('#zone').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✅ ¡Correcto! ':'❌ No era esa. La correcta: <b>'+d.opts[d.ok]+'</b>. '}${d.why}</div><div class="row"><button class="btn" id="nx">${i+1<items.length?'Siguiente':'Ver resultado'}</button></div>`;
+$('#nx').onclick=()=>{i++;i<items.length?show():fin('Caza de errores',right,items.length)}})})}
+show()}
+
+/* Arma la referencia */
+function arma(){stop();let i=0,right=0;const items=ARMA;
+function show(){const d=items[i];let placed=[];const pool=shuffle(d.pcs.map((t,k)=>({t,k})));let done=false;
+app.innerHTML=`<div class="card"><div class="tag">Arma la referencia · ${i+1}/${items.length} · ${d.n}</div><p>Arrastra (o toca) las piezas para formar la referencia en el orden correcto.</p><div class="pool" id="pool"></div><p class="tag" style="margin:12px 0 6px">Tu referencia</p><div class="zone" id="zone"></div><div class="row"><button class="btn" id="chk">Comprobar</button><button class="btn ghost" id="rst">Reiniciar</button></div><div id="fb"></div></div>`;
+const zone=$('#zone');
+function draw(){$('#pool').innerHTML='';zone.innerHTML=placed.length?'':`<span style="color:var(--mut)">Suelta aquí las piezas…</span>`;
+pool.filter(p=>!placed.includes(p)).forEach(p=>{const b=document.createElement('div');b.className='piece';b.draggable=true;b.innerHTML=p.t;b.onclick=()=>{if(!done){placed.push(p);draw()}};b.ondragstart=e=>e.dataTransfer.setData('text',p.k);$('#pool').appendChild(b)});
+placed.forEach(p=>{const b=document.createElement('div');b.className='piece';b.innerHTML=p.t;b.title='Toca para quitar';b.onclick=()=>{if(!done){placed=placed.filter(x=>x!==p);draw()}};zone.appendChild(b)})}
+zone.ondragover=e=>{e.preventDefault();zone.classList.add('over')};zone.ondragleave=()=>zone.classList.remove('over');
+zone.ondrop=e=>{e.preventDefault();zone.classList.remove('over');const p=pool.find(x=>x.k==e.dataTransfer.getData('text'));if(p&&!placed.includes(p)&&!done){placed.push(p);draw()}};
+$('#rst').onclick=()=>{if(!done){placed=[];draw()}};
+$('#chk').onclick=()=>{if(done)return;if(placed.length<pool.length){$('#fb').innerHTML=`<div class="fb bad">Faltan piezas por colocar.</div>`;return}
+const ok=placed.every((p,n)=>p.k===n);done=true;if(ok)right++;pts(ok);
+$('#fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✅ ¡Perfecto! ':'❌ El orden no es correcto. '}${d.why}</div><div class="row"><button class="btn" id="nx">${i+1<items.length?'Siguiente':'Ver resultado'}</button></div>`;
+$('#nx').onclick=()=>{i++;i<items.length?show():fin('Arma la referencia',right,items.length)}};
+draw()}
+show()}
+
+/* Acierta o rechaza */
+function tinder(){stop();const items=shuffle(TIND).slice(0,10);let i=0,right=0,busy=false,t0,T=10000;
+function show(){busy=false;const d=items[i];
+app.innerHTML=`<div class="card" id="cd"><div class="tag">${d.tag} · ${i+1}/${items.length}</div><div class="bar"><i id="br"></i></div><div class="ref" style="padding:0;text-indent:0;min-height:90px;font-size:1.25rem">${d.t}</div><div id="fb"></div></div><div class="swipe"><button style="background:var(--bad)" id="no">✗ Incorrecto</button><button style="background:var(--ok)" id="yes">Correcto ✓</button></div><p class="tag" style="text-align:center">Usa ← / → o desliza la tarjeta</p>`;
+$('#no').onclick=()=>ans(false);$('#yes').onclick=()=>ans(true);
+let x0=null;const cd=$('#cd');cd.ontouchstart=e=>x0=e.touches[0].clientX;cd.ontouchend=e=>{if(x0===null)return;const dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>60)ans(dx>0)};
+t0=Date.now();clearInterval(timer);timer=setInterval(()=>{const l=1-(Date.now()-t0)/T;const b=$('#br');if(b)b.style.width=Math.max(l,0)*100+'%';if(l<=0)ans(null)},100)}
+function ans(v){if(busy)return;busy=true;clearInterval(timer);const d=items[i];const ok=v===d.ok;if(ok)right++;pts(ok);
+$('#fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${v===null?'⏱ Se acabó el tiempo. ':ok?'✅ ':'❌ '}${d.why}</div>`;
+setTimeout(()=>{i++;i<items.length?show():fin('Acierta o rechaza',right,items.length)},1900)}
+keyFn=e=>{if(e.key==='ArrowLeft')ans(false);if(e.key==='ArrowRight')ans(true)};document.addEventListener('keydown',keyFn);
+show()}
+
+menu();
+</script>
+</body>
+</html>
